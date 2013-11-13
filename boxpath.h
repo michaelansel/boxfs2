@@ -26,6 +26,7 @@ typedef struct boxdir_t
   list * folders, * files, * pieces;
   char * id;
   pthread_mutex_t * dirmux;
+  int    is_thin;
 } boxdir;
 
 typedef struct boxfile_t

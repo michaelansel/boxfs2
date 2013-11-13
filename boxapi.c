@@ -59,6 +59,9 @@
 #define LOCKDIR(dir) pthread_mutex_lock(dir->dirmux);
 #define UNLOCKDIR(dir) pthread_mutex_unlock(dir->dirmux); 
 
+void do_hydrate_folder(const char * path, boxdir * aDir);
+void do_add_thin_folder(const char * path, const char * id);
+
 /* globals, written during initialization */
 char *auth_token = NULL, *refresh_token = NULL;
 long long tot_space, used_space;
@@ -229,6 +232,7 @@ int api_createdir(const char * path)
 		aFile = boxfile_create(bpath->base);
 		aFile->id = strdup(dirid);
 		LOCKDIR(bpath->dir);
+    		if(bpath->dir->is_thin) do_hydrate_folder(bpath->base, bpath->dir);
 		list_append(bpath->dir->folders, aFile);
 		UNLOCKDIR(bpath->dir);    
 		// invalidate cached parent entry
@@ -252,6 +256,7 @@ int api_create(const char * path)
   if(bpath->dir) {
     aFile = boxfile_create(bpath->base);
     LOCKDIR(bpath->dir);
+    if(bpath->dir->is_thin) do_hydrate_folder(bpath->base, bpath->dir);
     list_append(bpath->dir->files,aFile);
     UNLOCKDIR(bpath->dir);
   } else {
@@ -368,6 +373,7 @@ int api_readdir(const char * path, fuse_fill_dir_t filler, void * buf)
   filler(buf, "..", NULL, 0);
 
   LOCKDIR(dir);
+  if(dir->is_thin) do_hydrate_folder(path, dir);
   for(it=list_get_iter(dir->folders); it; it = list_iter_next(it)) {
       aFile = (boxfile*)list_iter_getval(it);
       filler(buf, aFile->name, NULL, 0);
@@ -387,6 +393,9 @@ int api_subdirs(const char * path)
   
   dir = (boxdir *) xmlHashLookup(allDirs,path);
   if (dir==NULL) return -1;
+  //LOCKDIR(dir);
+  //if(dir->is_thin) do_hydrate_folder(path, dir);
+  //UNLOCKDIR(dir);
 
   return list_size(dir->folders);
 }  
@@ -538,6 +547,7 @@ int do_api_move(boxpath * bsrc, boxpath * bdst)
 		
 		boxpath_removefile(bsrc);
 		LOCKDIR(bdst->dir);
+		if(bdst->dir->is_thin) do_hydrate_folder(bdst->base, bdst->dir);
 		list_append((bsrc->is_dir ? bdst->dir->folders : bdst->dir->files),
 			bsrc->file);
 		UNLOCKDIR(bdst->dir);
@@ -703,7 +713,35 @@ void api_upload(const char * path, const char * tmpfile)
   boxpath_free(bpath);
 }
 
-void do_add_folder(const char * path, const char * id)
+void do_hydrate_folder(const char * path, boxdir * dir)
+{
+	char * buf;
+	boxfile * f;
+	list_iter it;
+
+	if(dir->is_thin != 1) {
+		syslog(LOG_WARNING, "Can't hydrate a folder that isn't thin");
+		return;
+	} else {
+		if(options.verbose) syslog(LOG_DEBUG, "Hydrating %s", path);
+	}
+
+	set_conn_reuse(TRUE);
+
+	it = list_get_iter(dir->folders);
+	for(; it; it = list_iter_next(it)) {
+		f = list_iter_getval(it);
+		buf = pathappend(path, f->name);
+		if(options.verbose) syslog(LOG_DEBUG, "Adding thin child %s", buf);
+		do_add_thin_folder(buf, f->id);
+		free(buf);
+	}
+	dir->is_thin = 0;
+
+	set_conn_reuse(FALSE);
+}
+
+void do_add_thin_folder(const char * path, const char * id)
 {
 	char * buf;
 	jobj * obj;
@@ -729,14 +767,10 @@ void do_add_folder(const char * path, const char * id)
                 }
 
 	  	dir = boxtree_add_folder(path, id, objs);
+		dir->is_thin = 1;
 	  	list_free(objs);
-	  	it = list_get_iter(dir->folders);
-	  	for(; it; it = list_iter_next(it)) {
-	  	        f = list_iter_getval(it);
-	  	        buf = pathappend(path, f->name);
-	  		do_add_folder(buf, f->id);
-	  		free(buf);
-	  	}
+	} else {
+		syslog(LOG_WARNING, "Unable to retrieve info for folder with id: %s", id);
 	}
 }
 
@@ -802,7 +836,8 @@ int api_init(int* argc, char*** argv) {
   		jobj_free(root); jobj_free(info);
   		free(buf);
 
-  		do_add_folder("/", "0");
+  		do_add_thin_folder("/", "0");
+		//do_hydrate_folder("/", xmlHashLookup(allDirs, "/"));
   		set_conn_reuse(FALSE);
 
   		syslog(LOG_INFO, "Filesystem mounted on %s", options.mountpoint);
