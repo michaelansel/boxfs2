@@ -11,7 +11,7 @@ DEPS = vincenthz/libjson drotiro/libapp
 .PHONY: clean install check_pkg deps
 
 # Targets
-boxfs:  check_pkg $(OBJS) 
+boxfs: $(OBJS) 
 	@echo "Building  $@"
 	$(CC) $(FLAGS) $(LDFLAGS) -o $@ $(OBJS) $(LIBS)
 
@@ -31,10 +31,8 @@ deps:
 
 # Check required programs
 PKG_CONFIG_VER := $(shell pkg-config --version 2>/dev/null)
-check_pkg:
 ifndef PKG_CONFIG_VER
-	@echo " *** Please install pkg-config"
-	@exit 1
+$(error Please install pkg-config)
 endif
 
 # Dependencies
