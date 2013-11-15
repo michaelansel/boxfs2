@@ -738,14 +738,14 @@ boxdir * do_hydrate_folder(const char * path, boxdir * dir)
 	}
 	// if no ancestors found, give up
 	if(dir==NULL) {
-		syslog(LOG_WARNING, "Can't hydrate a folder without a known ancestor");
+		if(options.verbose) syslog(LOG_DEBUG, "Can't hydrate a folder without a known ancestor");
 		return NULL;
 	}
 
 	if(do_locking) LOCKDIR(dir);
 
 	if(dir->is_thin != 1) {
-		syslog(LOG_WARNING, "Can't hydrate a folder that isn't thin");
+		if(options.verbose) syslog(LOG_DEBUG, "Can't hydrate a folder that isn't thin");
 		if(do_locking) UNLOCKDIR(dir);
 		return dir;
 	}
