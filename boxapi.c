@@ -404,8 +404,8 @@ int api_getattr(const char *path, struct stat *stbuf)
 	memset(stbuf, 0, sizeof(struct stat));	
 	boxpath * bpath = boxpath_from_string(path);
 	if(!(bpath && boxpath_getfile(bpath))) {
-		// Try hydration before giving up
-		do_hydrate_folder(path, NULL);
+		// Try hydrating parent folder (even if it isn't thin)
+		do_hydrate_folder(dirname(strdup(path)), NULL);
 		bpath = boxpath_from_string(path);
 	}
 	if(!bpath) return -ENOENT;
