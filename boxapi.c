@@ -59,7 +59,7 @@
 #define LOCKDIR(dir) pthread_mutex_lock(dir->dirmux);
 #define UNLOCKDIR(dir) pthread_mutex_unlock(dir->dirmux); 
 
-void do_hydrate_folder(const char * path, boxdir * aDir);
+boxdir *do_hydrate_folder(const char * path, boxdir * aDir);
 void do_add_thin_folder(const char * path, const char * id);
 
 /* globals, written during initialization */
@@ -359,29 +359,31 @@ int api_open(const char * path, const char * pfile){
 	return res;
 }
 
-int api_readdir(const char * path, fuse_fill_dir_t filler, void * buf)
+void box_file_get_name_list(list * fileobjs, list ** names)
+{
+  boxfile * aFile;
+  list_iter it;
+  *names = list_new_full((list_deallocator)free);
+  for(it=list_get_iter(fileobjs); it; it = list_iter_next(it)) {
+    aFile = (boxfile*)list_iter_getval(it);
+    list_append(*names, strdup(aFile->name));
+  }
+}
+
+int box_path_get_folder_contents(const char * path, list ** folder_names, list ** file_names)
 {
   int res = 0;
   boxdir * dir;
-  boxfile * aFile;
-  list_iter it;
   
   dir = (boxdir *) xmlHashLookup(allDirs,path);
+  // Only fail if unable to hydrate ancestors
+  if (dir==NULL) dir=do_hydrate_folder(path, NULL);
   if (dir==NULL) return -EINVAL;
-
-  filler(buf, ".", NULL, 0);
-  filler(buf, "..", NULL, 0);
 
   LOCKDIR(dir);
   if(dir->is_thin) do_hydrate_folder(path, dir);
-  for(it=list_get_iter(dir->folders); it; it = list_iter_next(it)) {
-      aFile = (boxfile*)list_iter_getval(it);
-      filler(buf, aFile->name, NULL, 0);
-  }
-  for(it=list_get_iter(dir->files); it; it = list_iter_next(it)) {
-      aFile = (boxfile*)list_iter_getval(it);
-      filler(buf, aFile->name, NULL, 0);
-  }
+  box_file_get_name_list(dir->folders, folder_names);
+  box_file_get_name_list(dir->files, file_names);
   UNLOCKDIR(dir);
 
   return res;
@@ -393,9 +395,6 @@ int api_subdirs(const char * path)
   
   dir = (boxdir *) xmlHashLookup(allDirs,path);
   if (dir==NULL) return -1;
-  //LOCKDIR(dir);
-  //if(dir->is_thin) do_hydrate_folder(path, dir);
-  //UNLOCKDIR(dir);
 
   return list_size(dir->folders);
 }  
@@ -404,6 +403,11 @@ int api_getattr(const char *path, struct stat *stbuf)
 {
 	memset(stbuf, 0, sizeof(struct stat));	
 	boxpath * bpath = boxpath_from_string(path);
+	if(!(bpath && boxpath_getfile(bpath))) {
+		// Try hydration before giving up
+		do_hydrate_folder(path, NULL);
+		bpath = boxpath_from_string(path);
+	}
 	if(!bpath) return -ENOENT;
 	if(!boxpath_getfile(bpath)) {
 		boxpath_free(bpath);
@@ -713,20 +717,44 @@ void api_upload(const char * path, const char * tmpfile)
   boxpath_free(bpath);
 }
 
-void do_hydrate_folder(const char * path, boxdir * dir)
+boxdir * do_hydrate_folder(const char * path, boxdir * dir)
 {
 	char * buf;
 	boxfile * f;
 	list_iter it;
+	char * aPath;
+	int do_locking = dir == NULL ? 1 : 0;
+
+	// Speculative, recursive hydration of ancestors
+	// if no dir provided, try looking it up
+	if(dir==NULL) dir = (boxdir *) xmlHashLookup(allDirs, path);
+	// if no dir found, try looking for ancestors (unless root)
+	if(dir==NULL && strcmp(path, "/")) {
+		aPath = dirname(strdup(path));
+		if(do_hydrate_folder(aPath, NULL)) {
+			// after successful ancestor hydration, try looking up again
+			dir = (boxdir *) xmlHashLookup(allDirs, path);
+		}
+	}
+	// if no ancestors found, give up
+	if(dir==NULL) {
+		syslog(LOG_WARNING, "Can't hydrate a folder without a known ancestor");
+		return NULL;
+	}
+
+	if(do_locking) LOCKDIR(dir);
 
 	if(dir->is_thin != 1) {
 		syslog(LOG_WARNING, "Can't hydrate a folder that isn't thin");
-		return;
-	} else {
-		if(options.verbose) syslog(LOG_DEBUG, "Hydrating %s", path);
+		if(do_locking) UNLOCKDIR(dir);
+		return dir;
 	}
 
 	set_conn_reuse(TRUE);
+
+
+	// Now you can hydrate yourself
+	if(options.verbose) syslog(LOG_DEBUG, "Hydrating %s", path);
 
 	it = list_get_iter(dir->folders);
 	for(; it; it = list_iter_next(it)) {
@@ -739,6 +767,9 @@ void do_hydrate_folder(const char * path, boxdir * dir)
 	dir->is_thin = 0;
 
 	set_conn_reuse(FALSE);
+	if(do_locking) UNLOCKDIR(dir);
+
+	return dir;
 }
 
 void do_add_thin_folder(const char * path, const char * id)

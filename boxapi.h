@@ -7,11 +7,12 @@
 */
 
 #include <fuse.h>
+#include <libapp/list.h>
 
 void 	api_free(); 
 int 	api_init(int* argc, char*** argv);
 
-int 	api_readdir(const char *, fuse_fill_dir_t, void * buf);
+int     box_path_get_folder_contents(const char * path, list ** folder_names, list ** file_names);
 void	api_getusage(long long *, long long * );
 
 int	api_open(const char *, const char *);

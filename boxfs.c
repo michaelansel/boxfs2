@@ -36,7 +36,25 @@ static int box_access(const char *path, int mask)
 static int box_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
                        off_t offset, struct fuse_file_info *fi)
 {
-    return api_readdir(path,filler,buf);
+    int res = 0;
+    list * folders;
+    list * files;
+    list_iter it;
+
+    res = box_path_get_folder_contents(path, &folders, &files);
+    if(res) return -res;
+
+    filler(buf, ".", NULL, 0);
+    filler(buf, "..", NULL, 0);
+    for(it=list_get_iter(folders); it; it = list_iter_next(it)) {
+        filler(buf, (const char*) list_iter_getval(it), NULL, 0);
+    }
+    for(it=list_get_iter(files); it; it = list_iter_next(it)) {
+        filler(buf, (const char*) list_iter_getval(it), NULL, 0);
+    }
+    list_free(folders);
+    list_free(files);
+    return res;
 }
 
 static int box_mkdir(const char *path, mode_t mode)
