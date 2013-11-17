@@ -18,13 +18,15 @@ run_%: %
 
 # Clean up
 clean:
-	-rm -f $(TESTS)
-	-rm -f $(addsuffix .o, $(TESTS))
-	-rm -f $(addsuffix .d, $(TESTS))
+	-$(RM) $(TESTS)
+	-$(RM) $(addsuffix .o, $(TESTS))
+	-$(RM) $(addsuffix .d, $(TESTS))
 
-# Build remote objects
-$(BUILD_PREFIX)%:
-	$(MAKE) -D $(BUILD_PREFIX) $*
+# Build remote objects (always)
+$(BUILD_PREFIX)%.o: FORCE
+	$(MAKE) -C $(BUILD_PREFIX) $*.o
+
+FORCE:
 
 ## Automatic dependencies ##
 %.d: %.c

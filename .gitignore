@@ -1,4 +1,4 @@
-*.o
+*.[do]
 boxfs
 libapp
 libjson
