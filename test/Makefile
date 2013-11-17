@@ -2,7 +2,7 @@
 # Location of all the objects to be tested
 BUILD_PREFIX=../
 # Test cases to build and execute
-TESTS=
+TESTS=test_boxcache
 
 .PHONY: all run clean
 
@@ -35,3 +35,4 @@ FORCE:
 include $(addsuffix .d, $(TESTS))
 
 ## Manual dependencies ##
+test_boxcache: $(addprefix $(BUILD_PREFIX), boxcache.o boxutils.o)
